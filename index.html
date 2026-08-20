@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 영작 & 스피킹 플래시 카드</title>
+  
+  <!-- SDK 로드: Gemini SDK & Firebase SDK 모듈 매핑 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.run/@google/genai",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --primary: #059669; /* 영작/스피킹 앱 전용 에메랄드 테마 */
+      --primary-hover: #047857;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+    }
+
+    /* 상단 유저 인증 바 */
+    .user-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+      padding: 10px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+      font-size: 0.88rem;
+    }
+
+    .user-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+    .status-dot.online {
+      background: #10b981;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.6rem;
+      margin: 4px 0 16px;
+      color: var(--text-main);
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      background: #e2e8f0;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .study-view {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .card-scene {
+      width: 100%;
+      height: 400px;
+      perspective: 1000px;
+      margin-bottom: 20px;
+    }
+
+    .flashcard {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+      cursor: pointer;
+    }
+
+    .flashcard.flipped {
+      transform: rotateY(180deg);
+    }
+
+    .card-face {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+      background: var(--card-bg);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .card-front {
+      color: var(--text-main);
+    }
+
+    .card-front .sub-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #ecfdf5;
+      color: var(--primary);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .card-front .sentence {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.5;
+      margin: 16px 0;
+      word-break: break-word;
+    }
+
+    .card-front .hint {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .card-back {
+      transform: rotateY(180deg);
+      background: #fdfbf7;
+      text-align: left;
+      align-items: flex-start;
+      justify-content: flex-start;
+      overflow-y: auto;
+    }
+
+    .card-back .trans {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 12px;
+      width: 100%;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 8px;
+      word-break: break-word;
+    }
+
+    .card-back .exp {
+      font-size: 0.92rem;
+      line-height: 1.6;
+      color: #334155;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .manage-view {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    textarea {
+      resize: vertical;
+      height: 120px;
+    }
+
+    .input-with-btn {
+      display: flex;
+      gap: 8px;
+    }
+
+    .card-list {
+      margin-top: 30px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #fafafa;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #fff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- 상단 계정 동기화 상태 바 -->
+    <div class="user-bar">
+      <div class="user-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="userStatusText">로그인 확인 중...</span>
+      </div>
+      <button class="btn" id="authBtn" onclick="toggleAuth()" style="padding: 6px 12px; font-size: 0.8rem;">
+        구글 로그인
+      </button>
+    </div>
+
+    <h1>🗣️ AI 스피킹 플래시 카드</h1>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabStudy" onclick="switchTab('study')">🃏 스피킹 훈련</button>
+      <button class="tab-btn" id="tabManage" onclick="switchTab('manage')">✍️ 표현 등록 / 관리</button>
+    </div>
+
+    <!-- 1. 카드 학습 뷰 -->
+    <div id="studySection" class="study-view">
+      <div class="card-scene">
+        <div class="flashcard" id="flashCard" onclick="toggleCardFlip()">
+          <!-- 카드 앞면: 한국어 문장 보고 영작 연습 -->
+          <div class="card-face card-front">
+            <span class="sub-badge">말하고 싶은 한국어 문장</span>
+            <div class="hint" id="cardProgress">0 / 0</div>
+            <div class="sentence" id="frontText">구글 로그인 후 카드를 불러옵니다.</div>
+            <div class="hint">💡 영어로 소리 내어 말해본 뒤 카드를 뒤집으세요!</div>
+          </div>
+          <!-- 카드 뒷면: 원어민 영어 표현 & 코칭 해설 -->
+          <div class="card-face card-back">
+            <div class="trans" id="backTrans">English Expression</div>
+            <div class="exp" id="backExp">상세 설명</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" onclick="prevCard()">◀ 이전</button>
+        <button class="btn btn-primary" onclick="toggleCardFlip()">🔄 표현 확인</button>
+        <button class="btn" onclick="nextCard()">다음 ▶</button>
+        <button class="btn" onclick="shuffleCards()">🔀 랜덤 섞기</button>
+      </div>
+    </div>
+
+    <!-- 2. 문장 등록 뷰 -->
+    <div id="manageSection" class="manage-view" style="display: none;">
+      <div class="form-group">
+        <label for="korInput">🇰🇷 영어로 말하고 싶은 한국어 문장</label>
+        <div class="input-with-btn">
+          <input type="text" id="korInput" placeholder="예: 오늘 그 신발 잘 신고 왔네">
+          <button class="btn btn-primary" id="aiBtn" onclick="fetchAIAnalysis()" style="white-space: nowrap;">
+            ✨ AI 원어민 영작
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="engInput">🇺🇸 원어민 추천 표현</label>
+        <input type="text" id="engInput" placeholder="AI 분석 버튼을 누르면 추천 표현이 채워집니다">
+      </div>
+
+      <div class="form-group">
+        <label for="expInput">💡 뉘앙스 / 상황 / 발음 팁 해설</label>
+        <textarea id="expInput" placeholder="AI 분석 버튼을 누르면 상세 설명이 채워집니다"></textarea>
+      </div>
+
+      <button class="btn btn-primary" style="width: 100%; padding: 12px;" onclick="addCard()">
+        ☁️ 스피킹 덱에 등록하기
+      </button>
+
+      <div class="card-list">
+        <h3>📋 등록된 스피킹 카드 (<span id="totalCardsCount">0</span>개)</h3>
+        <div id="deckList" style="margin-top: 12px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { GoogleGenAI } from "@google/genai";
+    import { initializeApp } from "firebase/app";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+    import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+
+    // ==========================================
+    // 🔑 1. Gemini API 키
+    // ==========================================
+    const GEMINI_API_KEY = "AQ.Ab8RN6IH73Bq2tAZXQwX5FKrIoafEtiaBsZtLqGQmRXdk4EX-Q";
+
+    // ==========================================
+    // 🔑 2. Firebase 프로젝트 설정값
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyBLXXuBkhrPABHe9dGToHhXX1VXHyVNzxk",
+      authDomain: "english-flash-cc0ff.firebaseapp.com",
+      projectId: "english-flash-cc0ff",
+      storageBucket: "english-flash-cc0ff.firebasestorage.app",
+      messagingSenderId: "414128542079",
+      appId: "1:414128542079:web:8e476d94f33c1ff4c70a4a",
+      measurementId: "G-YTQ4WLEJLM"
+    };
+
+    // Firebase 초기화
+    const fbApp = initializeApp(firebaseConfig);
+    const auth = getAuth(fbApp);
+    const db = getFirestore(fbApp);
+    const provider = new GoogleAuthProvider();
+
+    // ★ 스피킹 전용 Firestore 컬렉션 이름 지정 ★
+    const COLLECTION_NAME = "speaking_flashcards";
+
+    let currentUser = null;
+    let unsubscribeFirestore = null;
+
+    let cards = [];
+    let studyOrder = [];
+    let currentIndex = 0;
+    let isFlipped = false;
+
+    // --- 계정 로그인 상태 감지 ---
+    onAuthStateChanged(auth, (user) => {
+      currentUser = user;
+      const statusDot = document.getElementById("statusDot");
+      const userStatusText = document.getElementById("userStatusText");
+      const authBtn = document.getElementById("authBtn");
+
+      if (user) {
+        statusDot.classList.add("online");
+        userStatusText.innerText = `${user.displayName || user.email.split('@')[0]} 님 동기화됨`;
+        authBtn.innerText = "로그아웃";
+        subscribeToCards(user.uid);
+      } else {
+        statusDot.classList.remove("online");
+        userStatusText.innerText = "로그인이 필요합니다 (동기화 중지됨)";
+        authBtn.innerText = "구글 로그인";
+        cards = [];
+        studyOrder = [];
+        updateStudyCard();
+        renderDeckList();
+        if (unsubscribeFirestore) unsubscribeFirestore();
+      }
+    });
+
+    // --- 로그인 / 로그아웃 버튼 ---
+    window.toggleAuth = function() {
+      if (currentUser) {
+        if (confirm("로그아웃 하시겠습니까?")) signOut(auth);
+      } else {
+        signInWithPopup(auth, provider).catch(err => {
+          console.error("로그인 실패:", err);
+          alert("로그인 중 오류가 발생했습니다: " + err.message);
+        });
+      }
+    };
+
+    // --- Firestore 실시간 동기화 구독 ---
+    function subscribeToCards(uid) {
+      if (unsubscribeFirestore) unsubscribeFirestore();
+
+      const q = query(
+        collection(db, COLLECTION_NAME),
+        where("uid", "==", uid),
+        orderBy("createdAt", "desc")
+      );
+
+      unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+        cards = [];
+        snapshot.forEach((docSnapshot) => {
+          cards.push({ id: docSnapshot.id, ...docSnapshot.data() });
+        });
+
+        studyOrder = Array.from({ length: cards.length }, (_, i) => i);
+        currentIndex = 0;
+        updateStudyCard();
+        renderDeckList();
+      }, (error) => {
+        console.error("데이터 로드 실패:", error);
+      });
+    }
+
+    // --- 탭 전환 ---
+    window.switchTab = function(tab) {
+      document.getElementById("tabStudy").classList.toggle("active", tab === "study");
+      document.getElementById("tabManage").classList.toggle("active", tab === "manage");
+      document.getElementById("studySection").style.display = tab === "study" ? "flex" : "none";
+      document.getElementById("manageSection").style.display = tab === "manage" ? "block" : "none";
+      if (tab === "study") updateStudyCard();
+    };
+
+    // --- 플래시 카드 뷰 렌더링 ---
+    function updateStudyCard() {
+      if (!currentUser) {
+        document.getElementById("frontText").innerText = "상단 버튼을 눌러 구글 로그인해주세요.";
+        document.getElementById("cardProgress").innerText = "0 / 0";
+        document.getElementById("backTrans").innerText = "";
+        document.getElementById("backExp").innerText = "";
+        return;
+      }
+
+      if (cards.length === 0) {
+        document.getElementById("frontText").innerText = "등록된 스피킹 카드가 없습니다. '표현 등록' 탭에서 새 카드를 추가해보세요!";
+        document.getElementById("cardProgress").innerText = "0 / 0";
+        document.getElementById("backTrans").innerText = "";
+        document.getElementById("backExp").innerText = "";
+        return;
+      }
+
+      const card = cards[studyOrder[currentIndex]];
+      if (!card) return;
+
+      document.getElementById("frontText").innerText = card.korean;
+      document.getElementById("backTrans").innerText = card.english;
+      document.getElementById("backExp").innerText = card.explanation;
+      document.getElementById("cardProgress").innerText = `${currentIndex + 1} / ${cards.length}`;
+
+      isFlipped = false;
+      document.getElementById("flashCard").classList.remove("flipped");
+    }
+
+    window.toggleCardFlip = function() {
+      if (cards.length === 0) return;
+      isFlipped = !isFlipped;
+      document.getElementById("flashCard").classList.toggle("flipped", isFlipped);
+    };
+
+    window.nextCard = function() {
+      if (cards.length === 0) return;
+      currentIndex = (currentIndex + 1) % cards.length;
+      updateStudyCard();
+    };
+
+    window.prevCard = function() {
+      if (cards.length === 0) return;
+      currentIndex = (currentIndex - 1 + cards.length) % cards.length;
+      updateStudyCard();
+    };
+
+    window.shuffleCards = function() {
+      if (cards.length === 0) return;
+      studyOrder = Array.from({ length: cards.length }, (_, i) => i);
+      for (let i = studyOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [studyOrder[i], studyOrder[j]] = [studyOrder[j], studyOrder[i]];
+      }
+      currentIndex = 0;
+      updateStudyCard();
+    };
+
+    // --- Gemini AI 한국어 -> 원어민 스피킹 표현 변환 ---
+    window.fetchAIAnalysis = async function() {
+      const sentence = document.getElementById("korInput").value.trim();
+
+      if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY") {
+        alert("코드 내 GEMINI_API_KEY를 설정해주세요.");
+        return;
+      }
+      if (!sentence) {
+        alert("영어로 말하고 싶은 한국어 문장을 먼저 입력해주세요!");
+        return;
+      }
+
+      const aiBtn = document.getElementById("aiBtn");
+      aiBtn.innerHTML = '<span class="loading-spinner"></span> 영작 중...';
+      aiBtn.disabled = true;
+
+      try {
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.trim() });
+
+        const prompt = `당신은 대한민국 최고의 1타 영어 스피킹 코치이자 원어민 에디터입니다.
+사용자가 입력한 한국어 문장("${sentence}")을 원어민이 실제 구어체 대화에서 가장 자연스럽고 세련되게 입 밖으로 뱉는 대표 영어 표현으로 번역하고, 스피킹 훈련에 꼭 필요한 내용 위주로 해설하세요.
+
+반드시 아래 JSON 포맷으로만 응답하세요:
+{
+  "english": "원어민이 가장 추천하는 대표 영어 표현 1개",
+  "explanation": "다음 항목들을 줄바꿈을 활용해 보기 좋게 정리해서 작성:\\n\\n💬 [뉘앙스 & 속뜻]: 원어민 관점에서 이 표현이 주는 뉘앙스\\n\\n🎯 [상황별 다른 표현]: 격식/캐주얼 등 어조에 따른 대체 표현 1~2개\\n\\n🗣️ [발음 & 연음 팁]: 입에 착 붙게 말하는 연음/강세 가이드\\n\\n✨ [핵심 말토막(Chunk)]: 외워두면 유용한 핵심 패턴"
+}`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        let rawText = response.text.trim();
+        rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(rawText);
+
+        document.getElementById("engInput").value = parsed.english || "";
+        document.getElementById("expInput").value = parsed.explanation || "";
+      } catch (err) {
+        console.error("AI Error:", err);
+        alert(`⚠️ 분석 오류:\n${err.message || err}`);
+      } finally {
+        aiBtn.innerHTML = "✨ AI 원어민 영작";
+        aiBtn.disabled = false;
+      }
+    };
+
+    // --- 카드 등록 ---
+    window.addCard = async function() {
+      if (!currentUser) {
+        alert("문장을 클라우드에 저장하려면 먼저 구글 로그인을 해주세요!");
+        return;
+      }
+
+      const kor = document.getElementById("korInput").value.trim();
+      const eng = document.getElementById("engInput").value.trim();
+      const exp = document.getElementById("expInput").value.trim();
+
+      if (!kor || !eng) return alert("한국어 문장과 영어 표현을 모두 입력해주세요!");
+
+      try {
+        await addDoc(collection(db, COLLECTION_NAME), {
+          uid: currentUser.uid,
+          korean: kor,
+          english: eng,
+          explanation: exp,
+          createdAt: serverTimestamp()
+        });
+
+        document.getElementById("korInput").value = "";
+        document.getElementById("engInput").value = "";
+        document.getElementById("expInput").value = "";
+        alert("스피킹 카드가 클라우드에 성공적으로 등록되었습니다!");
+      } catch (err) {
+        alert("저장 오류: " + err.message);
+      }
+    };
+
+    // --- 카드 삭제 ---
+    window.deleteCard = async function(id) {
+      if (confirm("이 카드를 삭제하시겠습니까?")) {
+        try {
+          await deleteDoc(doc(db, COLLECTION_NAME, id));
+        } catch (err) {
+          alert("삭제 오류: " + err.message);
+        }
+      }
+    };
+
+    // --- 목록 렌더링 ---
+    function renderDeckList() {
+      const listDiv = document.getElementById("deckList");
+      document.getElementById("totalCardsCount").innerText = cards.length;
+      listDiv.innerHTML = "";
+
+      if (cards.length === 0) {
+        listDiv.innerHTML = '<p style="text-align: center; color: #94a3b8; font-size: 0.85rem; padding: 16px;">등록된 카드가 없습니다.</p>';
+        return;
+      }
+
+      cards.forEach((c) => {
+        const item = document.createElement("div");
+        item.className = "list-item";
+        item.innerHTML = `
+          <div>
+            <strong>${escapeHtml(c.korean)}</strong><br>
+            <small style="color: #059669; font-weight: 600;">${escapeHtml(c.english)}</small>
+          </div>
+          <button class="btn" style="color: #ef4444; padding: 4px 10px;" onclick="window.deleteCard('${c.id}')">삭제</button>
+        `;
+        listDiv.appendChild(item);
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+  </script>
+</body>
+</html>
