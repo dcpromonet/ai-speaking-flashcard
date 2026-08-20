@@ -473,10 +473,30 @@
       if (unsubscribeFirestore) unsubscribeFirestore();
 
       const q = query(
-        collection(db, COLLECTION_NAME),
-        where("uid", "==", uid),
-        orderBy("createdAt", "desc")
-      );
+  collection(db, COLLECTION_NAME),
+  where("uid", "==", uid)
+);
+
+unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+  cards = [];
+  snapshot.forEach((docSnapshot) => {
+    cards.push({ id: docSnapshot.id, ...docSnapshot.data() });
+  });
+
+  // 최신 등록순으로 자바스크립트에서 직접 정렬
+  cards.sort((a, b) => {
+    const timeA = a.createdAt ? a.createdAt.toMillis() : 0;
+    const timeB = b.createdAt ? b.createdAt.toMillis() : 0;
+    return timeB - timeA;
+  });
+
+  studyOrder = Array.from({ length: cards.length }, (_, i) => i);
+  currentIndex = 0;
+  updateStudyCard();
+  renderDeckList();
+}, (error) => {
+  console.error("데이터 로드 실패:", error);
+});
 
       unsubscribeFirestore = onSnapshot(q, (snapshot) => {
         cards = [];
